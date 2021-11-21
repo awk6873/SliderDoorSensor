@@ -17,37 +17,39 @@
 #define MAX_DEGREE 150
 
 #define HMC5883L 0x1E    // 0011110b, I2C 7bit address of HMC5883
-#define set_pin  A0      // вход от потенциометра для установки чувствительности
-#define out_pin  13      // выход на ключ MOSFET
+#define setup_pin  A0    // вход от потенциометра для установки чувствительности
+#define switch_pin  13   // выход на ключ MOSFET
 
-int x_offset, y_offset, z_offset;
+int x_init, y_init, z_init;
 
 int measure_count = 0;
 
-float init_heading = 0;
+float heading_init = 0;
 
 void setup(){
-  pinMode(set_pin, INPUT);
-  pinMode(out_pin, OUTPUT);
+  pinMode(setup_pin, INPUT);
+  pinMode(switch_pin, OUTPUT);
 
-  // считываем значения смещений из EEPROM
-  x_offset = EEPROM.read(0) | EEPROM.read(1)<<8;
-  y_offset = EEPROM.read(2) | EEPROM.read(3)<<8;
-  z_offset = EEPROM.read(4) | EEPROM.read(5)<<8;
+  // считываем калибровочные значения по осям из EEPROM
+  x_init = EEPROM.read(0) | EEPROM.read(1)<<8;
+  y_init = EEPROM.read(2) | EEPROM.read(3)<<8;
+  z_init = EEPROM.read(4) | EEPROM.read(5)<<8;
   
   #ifdef DEBUG
   Serial.begin(9600);
 
   Serial.println();
-  Serial.println("Reading offsets from EEPROM");
-  Serial.print(x_offset);
+  Serial.println("Axes init values from EEPROM");
+  Serial.print(x_init);
   Serial.print("\t");
-  Serial.print(y_offset);
+  Serial.print(y_init);
   Serial.print("\t");
-  Serial.println(z_offset);
+  Serial.print(z_init);
+  Serial.println();
   Serial.println();
   #endif
 
+  // инициализация I2C
   Wire.begin();
   
   // Put the HMC5883L IC into the correct operating mode
@@ -79,7 +81,7 @@ void loop(){
     y |= Wire.read(); //Y lsb
   }
 
-  if (analogRead(set_pin) < 5 && ++measure_count < CALIBRATE_MEASURES) {
+  if (analogRead(setup_pin) < 5 && ++measure_count < CALIBRATE_MEASURES) {
     // подстроечник в минимальном положении, т.е. включен режим калибровки
     // определяем средние смещения по осям для калибровки  
 
@@ -90,20 +92,20 @@ void loop(){
       #endif
     
       // инициализируем значения смещений
-      x_offset = x, y_offset = y, z_offset = z;
+      x_init = x, y_init = y, z_init = z;
     }
 
     // для последующих замеров усредняем значения
-    x_offset = (x_offset + x) / 2;
-    y_offset = (y_offset + y) / 2;
-    z_offset = (z_offset + z) / 2;
+    x_init = (x_init + x) / 2;
+    y_init = (y_init + y) / 2;
+    z_init = (z_init + z) / 2;
     
     #ifdef DEBUG
-    Serial.print(x_offset);
+    Serial.print(x_init);
     Serial.print('\t');
-    Serial.print(y_offset);
+    Serial.print(y_init);
     Serial.print('\t');
-    Serial.print(z_offset);   
+    Serial.print(z_init);   
     Serial.println();
     #endif
 
@@ -114,56 +116,58 @@ void loop(){
     // калибровка завершена
 
     #ifdef DEBUG
-    Serial.println("Writing offsets to EEPROM");
-    Serial.print(x_offset);
+    Serial.println("Writing axes init values to EEPROM");
+    Serial.print(x_init);
     Serial.print('\t');
-    Serial.print(y_offset);
+    Serial.print(y_init);
     Serial.print('\t');
-    Serial.println(z_offset);
+    Serial.print(z_init);
+    Serial.println();
     Serial.println();
     #endif
 
-    // запоминаем смещения в EEPROM
-    EEPROM.write(0, x_offset);
-    EEPROM.write(1, x_offset>>8);
-    EEPROM.write(2, y_offset);
-    EEPROM.write(3, y_offset>>8);
-    EEPROM.write(4, z_offset);
-    EEPROM.write(5, z_offset>>8);  
+    // запоминаем калибровочные значения в EEPROM
+    EEPROM.write(0, x_init);
+    EEPROM.write(1, x_init>>8);
+    EEPROM.write(2, y_init);
+    EEPROM.write(3, y_init>>8);
+    EEPROM.write(4, z_init);
+    EEPROM.write(5, z_init>>8);  
 
-    // сбрасываем начальное положение
-    init_heading = 0;
   }
-  
-  // применяем смещения к текущим замерам
-  x -= x_offset;
-  y -= y_offset;
-  z -= z_offset;
   
   // получаем значение угла
   float heading = atan2(z, y) * 180 / PI;
 
-  if (init_heading == 0)
+  if (heading_init == 0)
     // запоминаем начальное положение
-    init_heading = heading;
+    heading_init = heading;
 
   // получаем отклонение
-  heading -= init_heading;
+  heading -= heading_init;
+  
+  // пороговое значение отклонения с потенциометра
+  int heading_threshold = map(analogRead(setup_pin), 0, 1023, MAX_DEGREE, MIN_DEGREE);
 
   #ifdef DEBUG  
-  Serial.println(heading);
   Serial.print(x);
   Serial.print("\t");
   Serial.print(y);
   Serial.print("\t");
   Serial.print(z);
+  Serial.print("\t");
+  Serial.print(heading);
+  Serial.print("\t");
+  Serial.print(heading_threshold);
   Serial.println();
   #endif 
+
+
   
-  if (abs(heading) > map(analogRead(set_pin), 0, 1023, MAX_DEGREE, MIN_DEGREE))
+  if (abs(heading) > heading_threshold)
     // отклонение больше установленного, включаем подсветку
-    digitalWrite(out_pin, HIGH);
+    digitalWrite(switch_pin, HIGH);
   else 
-    digitalWrite(out_pin, LOW);
+    digitalWrite(switch_pin, LOW);
     
 }
