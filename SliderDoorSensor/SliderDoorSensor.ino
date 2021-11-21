@@ -2,8 +2,14 @@
 // на HMC5883L (GY-271) и ATTiny85
 
 // Распиновка
-// A0 - установка чувствительности
-// Arduino UNO I2C - A4 (SDA), A5 (SCL) 
+// ATTiny85
+// SDA - 0 (pin 5), SCL - 2 (pin 7)
+// Регулировка чувствительности - A2 (pin 3)
+// Выход на ключ - 1 (pin 6)
+// Arduino UNO (отладка)
+// SDA - A5, SCL - A4
+// Регулировка чувствительности - A0
+// Выход на ключ - 13 
 
 #define DEBUG 1 
 #include <EEPROM.h>
