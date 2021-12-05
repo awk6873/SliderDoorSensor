@@ -1,5 +1,9 @@
 // Высокочувствительный магнитный датчик открывания двери шкафа-купе для включения внутренней подсветки
 // на HMC5883L (GY-271) и ATTiny85
+// Дата последней модификации 2021.12.05
+
+// Для калибровки положения двери "закрыта" подстроечник регулировки перевести в мин.положение
+// и включить питание
 
 // Распиновка
 // ATTiny85
@@ -17,9 +21,9 @@
 #include <Wire.h>  // I2C ATTiny Master
 
 #define CALIBRATE_MEASURES 10  // 1 сек. на калибровку
-#define LOOP_DELAY 100  // 10 циклов/сек.
+#define LOOP_DELAY 100   // 10 циклов/сек.
 
-#define MIN_DEGREE 10   // диапазон регулировки чувствительности 
+#define MIN_DEGREE 10    // диапазон регулировки чувствительности 
 #define MAX_DEGREE 150
 
 #define HMC5883L 0x1E    // 0011110b, I2C 7bit address of HMC5883
@@ -30,7 +34,7 @@ int x_init, y_init, z_init;
 
 int measure_count = 0;
 
-float heading_init = 0;
+int heading_init = 0;
 
 void setup(){
   pinMode(setup_pin, INPUT);
@@ -55,13 +59,16 @@ void setup(){
   Serial.println();
   #endif
 
+  // получаем значение начального угла
+  heading_init = (int) (atan2(z_init, y_init) * 180 / PI);
+
   // инициализация I2C
   Wire.begin();
   
   // Put the HMC5883L IC into the correct operating mode
-  Wire.beginTransmission(HMC5883L);   //open communication with HMC5883
+  Wire.beginTransmission(HMC5883L);    //open communication with HMC5883
   Wire.write(0x02);                    //select mode register
-  Wire.write(0x00);                   //continuous measurement mode
+  Wire.write(0x00);                    //continuous measurement mode
   Wire.endTransmission();
 
 }
@@ -87,9 +94,10 @@ void loop(){
     y |= Wire.read(); //Y lsb
   }
 
-  if (analogRead(setup_pin) < 5 && ++measure_count < CALIBRATE_MEASURES) {
+  if (analogRead(setup_pin) < 20 && ++measure_count < CALIBRATE_MEASURES) {
     // подстроечник в минимальном положении, т.е. включен режим калибровки
-    // определяем средние смещения по осям для калибровки  
+    // и еще не выполнено нужное кол-во замеров,
+    // выполняем калибровку  
 
     if (measure_count == 1) {
       // для первого замера
@@ -97,7 +105,7 @@ void loop(){
       Serial.println("Calibrating sensor");
       #endif
     
-      // инициализируем значения смещений
+      // инициализируем значения 
       x_init = x, y_init = y, z_init = z;
     }
 
@@ -118,8 +126,11 @@ void loop(){
     return;
   }     
   
-  if (measure_count++ == CALIBRATE_MEASURES) {
+  if (analogRead(setup_pin) < 20 && measure_count == CALIBRATE_MEASURES) {
     // калибровка завершена
+
+    // получаем значение начального угла
+    heading_init = (int) (atan2(z_init, y_init) * 180 / PI);
 
     #ifdef DEBUG
     Serial.println("Writing axes init values to EEPROM");
@@ -128,6 +139,8 @@ void loop(){
     Serial.print(y_init);
     Serial.print('\t');
     Serial.print(z_init);
+    Serial.print('\t');
+    Serial.print(heading_init);
     Serial.println();
     Serial.println();
     #endif
@@ -139,20 +152,12 @@ void loop(){
     EEPROM.write(3, y_init>>8);
     EEPROM.write(4, z_init);
     EEPROM.write(5, z_init>>8);  
-
   }
   
-  // получаем значение угла
-  float heading = atan2(z, y) * 180 / PI;
-
-  if (heading_init == 0)
-    // запоминаем начальное положение
-    heading_init = heading;
-
-  // получаем отклонение
-  heading -= heading_init;
+  // получаем значение отклонения угла от начального
+  int heading = (int) (atan2(z, y) * 180 / PI) - heading_init;
   
-  // пороговое значение отклонения с потенциометра
+  // получаем пороговое значение отклонения с потенциометра
   int heading_threshold = map(analogRead(setup_pin), 0, 1023, MAX_DEGREE, MIN_DEGREE);
 
   #ifdef DEBUG  
@@ -167,8 +172,6 @@ void loop(){
   Serial.print(heading_threshold);
   Serial.println();
   #endif 
-
-
   
   if (abs(heading) > heading_threshold)
     // отклонение больше установленного, включаем подсветку
