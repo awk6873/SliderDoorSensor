@@ -1,6 +1,6 @@
 // Высокочувствительный магнитный датчик открывания двери шкафа-купе для включения внутренней подсветки
 // на HMC5883L (GY-271) и ATTiny85
-// Дата последней модификации 2022.01.22
+// Дата последней модификации 2022.01.23
 //
 // Используется изменение проекции оси Z на ось Y магнетометра
 // Для калибровки в положении "дверь закрыта" установить перемычку между setup_pin и GND,
@@ -17,15 +17,16 @@
 //   Регулировка чувствительности - A2 (pin 3)
 //   Выход на ключ - 1 (pin 6)
 // Arduino UNO (для отладки):
-//   SDA - A5, SCL - A4
-//   Регулировка чувствительности - A0
+//   SDA - A4, SCL - A5
+//   Регулировка чувствительности - A2
 //   Выход на ключ - 13 
 
-#define DEBUG 1 
+// #define DEBUG 1 
 // #define SETUP 1
 #include <EEPROM.h>
 
 #include <Wire.h>  // I2C ATTiny Master
+
 
 #define CALIBRATE_MEASURES 10  // 10 замеров на калибровку
 #define LOOP_DELAY 200   // 5 циклов/сек.
@@ -34,8 +35,8 @@
 #define MAX_DEGREE 150
 
 #define HMC5883L 0x1E    // 0011110b, I2C 7bit address of HMC5883
-#define setup_pin A0     // A2   // вход от потенциометра для калибровки чувствительности
-#define switch_pin 13    // 1   // выход на ключ MOSFET
+#define setup_pin A2     // вход от потенциометра для калибровки чувствительности
+#define switch_pin 1     // 13   // выход на ключ MOSFET
 
 int heading_init;
 int heading_threshold;
@@ -43,12 +44,13 @@ int heading_threshold;
 int measure_count = 0;
 
 void setup(){
+  
   pinMode(setup_pin, INPUT_PULLUP);
   pinMode(switch_pin, OUTPUT);
 
   // считываем калибровочное значение угла и порог срабатывания из EEPROM
-  heading_init = EEPROM.read(0) | EEPROM.read(1)<<8;
-  heading_threshold = EEPROM.read(2) | EEPROM.read(3)<<8;
+  heading_init = EEPROM.read(0) | EEPROM.read(1) << 8;
+  heading_threshold = EEPROM.read(2) | EEPROM.read(3) << 8;
   
   #ifdef DEBUG
   Serial.begin(9600);
@@ -122,15 +124,13 @@ void loop(){
     Serial.print(z_init);   
     Serial.println();
     #endif
-
-    return;
   }     
   
   if (analogRead(setup_pin) < 50 && measure_count == CALIBRATE_MEASURES) {
     // калибровка завершена
 
     // получаем значение начального угла
-    heading_init = (int) (atan2(z_init, y_init) * 180 / PI);
+    heading_init = (int) (atan2(z_init, y_init) * (float)180 / PI);
 
     #ifdef DEBUG
     Serial.println("Writing heading init value to EEPROM:");
@@ -143,11 +143,9 @@ void loop(){
     EEPROM.write(0, heading_init);
     EEPROM.write(1, heading_init >> 8);
   }
-  
-  // получаем значение отклонения угла от начального
-  heading = (int) (atan2(z, y) * 180 / PI) - heading_init;
 
   #ifdef SETUP
+  // включен режим калибровки порога
   // получаем пороговое значение отклонения с потенциометра
   heading_threshold = map(analogRead(setup_pin), 0, 1023, MAX_DEGREE, MIN_DEGREE);
     #ifdef DEBUG
@@ -173,11 +171,14 @@ void loop(){
   Serial.print(heading_threshold);
   Serial.println();
   #endif 
+
+  // получаем значение отклонения угла от начального
+  heading = (int) (atan2(z, y) * (float)180 / PI) - heading_init;
   
   if (abs(heading) > heading_threshold)
     // отклонение больше установленного, включаем подсветку
     digitalWrite(switch_pin, HIGH);
   else 
-    digitalWrite(switch_pin, LOW);
+    digitalWrite(switch_pin, LOW); 
     
 }
